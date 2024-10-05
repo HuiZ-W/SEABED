@@ -1,6 +1,6 @@
-# GENIE
+# GINIE
 
-This repository contains the implementation of GENIE, a method for predicting knowledge graph edit distance through embedding and graph neural networks. The method is developed using PyTorch.
+This repository contains the implementation of GINIE, a method for predicting knowledge graph edit distance through embedding and graph neural networks. The method is developed using PyTorch.
 
 ---
 
