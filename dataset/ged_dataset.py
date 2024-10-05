@@ -295,7 +295,7 @@ class NEWGEDDataSet:
         return sampled_edge_embeddings_tensor, [sampled_index]
     
 if __name__ == "__main__":
-    path = "/home/huizhong/GED_Process/NeuralGED/data/swdf/processed_data/train"
+    path = "/home/GED_Process/NeuralGED/data/swdf/processed_data/train"
     dataset = GEDDataSet(path, PreLoad=False, device="cuda")
     data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
     for data in data_loader:
