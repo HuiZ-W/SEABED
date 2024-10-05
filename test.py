@@ -224,9 +224,9 @@ if __name__ == "__main__":
     set_seed(42)
     dataset = "swdf_unlabel"
     parser = argparse.ArgumentParser()
-    parser.add_argument('--test_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test')
-    parser.add_argument('--test_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test_GEDINFO.json')
-    parser.add_argument('--model_path', type=str, default='/home/huizhong/GED_Process/NeuralGED/data/newdata/swdf_unlabel/processed_data/tree_mlp_all_rules/model_2024-09-11_20-39-08_best.pth')
+    parser.add_argument('--test_dir', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test')
+    parser.add_argument('--test_pairs', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test_GEDINFO.json')
+    parser.add_argument('--model_path', type=str, default='/home/GED_Process/NeuralGED/data/newdata/swdf_unlabel/processed_data/tree_mlp_all_rules/model_2024-09-11_20-39-08_best.pth')
     parser.add_argument('--device', type=str, default="cuda:0")
     parser.add_argument('--preload', type=bool, default=False)
     parser.add_argument('--seed', type=int, default=42)
