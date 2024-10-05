@@ -61,7 +61,7 @@ def mul_cal_ged(index, all_json_data):
     return result
 
 if __name__ == "__main__":
-    folder_path = '/home/huizhong/GED_Process/NeuralGED/data/newdata/wikidata_unlabel/processed_data'
+    folder_path = '/home/GED_Process/NeuralGED/data/newdata/wikidata_unlabel/processed_data'
     sub_dirs = ['train','val','test']
     dereive_num = 50
     for sub_dir in sub_dirs:
@@ -79,8 +79,8 @@ if __name__ == "__main__":
             json.dump(GED_INFO, f)
 '''
 if __name__ == "__main__":
-    folder_path = '/home/huizhong/GED_Process/NeuralGED/data/newdata/swdf_samelabel/processed_data'
-    pair_path = '/home/huizhong/GED_Process/NeuralGED/data/newdata/swdf_samelabel/processed_data'
+    folder_path = '/home/GED_Process/NeuralGED/data/newdata/swdf_samelabel/processed_data'
+    pair_path = '/home/GED_Process/NeuralGED/data/newdata/swdf_samelabel/processed_data'
     sub_dirs = ['train', 'val', 'test']
     for sub_dir in sub_dirs:
         GED_INFO = {'pairs_info':[],"Avg Ged":0}
