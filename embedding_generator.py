@@ -37,7 +37,7 @@ def get_embeddings(dataset_name, kg_file, entities=None, remote=True, sparql_end
     )
     '''
     #Define the path of the walk folder
-    folder_path = "/home/huizhong/GED_Process/NeuralGED/data/walk"
+    folder_path = "/home/GED_Process/NeuralGED/data/walk"
     if os.path.exists(folder_path):
         shutil.rmtree(folder_path)
         print("walk folder removed")
@@ -72,7 +72,7 @@ def get_embeddings(dataset_name, kg_file, entities=None, remote=True, sparql_end
 
 if __name__ == "__main__":
 
-    data_dir = "/home/huizhong/GED_Process/NeuralGED/data/newdata/yago"
+    data_dir = "/home/GED_Process/NeuralGED/data/newdata/yago"
     subdirs = ["train", "val", 'test']
     rawData_path = os.path.join(data_dir, "raw_data")
     data_path = os.path.join(data_dir, "processed_data")
