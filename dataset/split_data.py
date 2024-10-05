@@ -4,7 +4,7 @@ import glob
 import random
 
 # 定义数据集的路径
-dataset_dir = '/home/huizhong/GED_Process/NeuralGED/data/newdata/yago/raw_data'
+dataset_dir = '/home/GED_Process/NeuralGED/data/newdata/yago/raw_data'
 train_dir = os.path.join(dataset_dir, 'train')
 val_dir = os.path.join(dataset_dir, 'val')
 test_dir = os.path.join(dataset_dir, 'test')
