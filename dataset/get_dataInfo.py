@@ -3,7 +3,7 @@ import glob
 import json
 
 data_info = {"avg_node_num": 0, "avg_edge_num": 0, "max_node": 0, "max_edge": 0, "avg_ged": 0, 'total_graph_num': 0}
-data_dir = "/home/huizhong/GED_Process/NeuralGED/data/wikidata_small/processed_data"
+data_dir = "/home/GED_Process/NeuralGED/data/wikidata_small/processed_data"
 sub_dirs = ['train','val','test']
 files = []
 
