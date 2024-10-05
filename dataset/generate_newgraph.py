@@ -498,10 +498,10 @@ if __name__ == "__main__":
     "db_name": dataset,
     "format": "json"
     }
-    KG_path = f"/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/{dataset}.nt"
-    embedding_path = f"/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/statistic.json"
-    raw_dir = f"/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset_name}/processed_data"
-    #raw_dir = f"/home/huizhong/GED_Process/NeuralGED/data/previous_data/swdf_small/raw_data"
+    KG_path = f"/home/GED_Process/NeuralGED/data/newdata/{dataset}/{dataset}.nt"
+    embedding_path = f"/home/GED_Process/NeuralGED/data/newdata/{dataset}/statistic.json"
+    raw_dir = f"/home/GED_Process/NeuralGED/data/newdata/{dataset_name}/processed_data"
+    #raw_dir = f"/home/GED_Process/NeuralGED/data/previous_data/swdf_small/raw_data"
     if not os.path.exists(raw_dir):
         os.makedirs(raw_dir)
     if remote == False:
