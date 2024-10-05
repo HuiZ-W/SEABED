@@ -313,10 +313,10 @@ if __name__ == "__main__":
     "db_name": dataset,
     "format": "json"
     }
-    KG_path = f"/home/huizhong/GED_Process/NeuralGED/data/nwedata/{dataset}/lubm.nt"
-    embedding_path = f"/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/statistic.json"
-    raw_dir = f"/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset_name}l/raw_data"
-    des_dir = f"/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset_name}/processed_data"
+    KG_path = f"/home/GED_Process/NeuralGED/data/nwedata/{dataset}/lubm.nt"
+    embedding_path = f"/home/GED_Process/NeuralGED/data/newdata/{dataset}/statistic.json"
+    raw_dir = f"/home/GED_Process/NeuralGED/data/newdata/{dataset_name}l/raw_data"
+    des_dir = f"/home/GED_Process/NeuralGED/data/newdata/{dataset_name}/processed_data"
     if not os.path.exists(des_dir):
         os.makedirs(des_dir)
     if not os.path.exists(raw_dir):
