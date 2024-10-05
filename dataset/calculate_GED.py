@@ -57,7 +57,7 @@ def delete_tmpdata(file_names):
         os.remove(file)
 
 if __name__ == "__main__":
-    data_dir = "/home/huizhong/GED_Process/NeuralGED/data/newdata/wikidata_unlabel"
+    data_dir = "/home/GED_Process/NeuralGED/data/newdata/wikidata_unlabel"
     data_path = os.path.join(data_dir, "processed_data")
     sub_dirs = ["train", "val", "test"]
     dereive_num = 50
