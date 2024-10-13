@@ -71,6 +71,7 @@ class TripleConv(MessagePassing):
                 raise ValueError("Could not infer input channels from `nn`.")
             in_channels = 101
             self.lin = Linear(3 * edge_dim, edge_dim)
+            self.lin2 = Linear(3 * edge_dim, edge_dim)
         self.reset_parameters()
     
     def reset_parameters(self):
@@ -78,6 +79,7 @@ class TripleConv(MessagePassing):
         self.eps.data.fill_(self.initial_eps)
         if self.lin is not None:
             self.lin.reset_parameters()
+            self.lin2.reset_parameters()
     
     def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj,
                 edge_attr: OptTensor = None, size: Size = None) -> Tensor:
@@ -94,9 +96,14 @@ class TripleConv(MessagePassing):
         return self.nn(out)
     
     def message(self, x_i: Tensor, x_j: Tensor, edge_attr: Tensor) -> Tensor:
-
-        return self.lin(torch.cat((x_i, edge_attr, x_j), 1)).relu()
-
+        half_length = x_i.size(0) // 2
+        x_i_1, x_i_2 = x_i[:half_length], x_i[half_length:]
+        x_j_1, x_j_2 = x_j[:half_length], x_j[half_length:]
+        edge_attr_1, edge_attr_2 = edge_attr[:half_length], edge_attr[half_length:]
+        res1 = self.lin(torch.cat((x_i_1, edge_attr_1, x_j_1), 1)).relu()
+        res2 = self.lin(torch.cat((x_j_2, edge_attr_2, x_i_2), 1)).relu()
+        res = torch.cat((res1, res2), 0)
+        return res
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(nn={self.nn})'
 
@@ -169,29 +176,33 @@ class GraphNet(torch.nn.Module):
         features_1 = data['node_features_0'].squeeze()
         features_2 = data['node_features_1'].squeeze()
         edge_index_1 = data['edge_indices_0'].squeeze()
+        trans_edge_index_1 = torch.stack([edge_index_1[1], edge_index_1[0]], dim=0)
+        combined_edge_index1 = torch.cat([edge_index_1, trans_edge_index_1], dim=1)
         edge_index_2 = data['edge_indices_1'].squeeze()
+        trans_edge_index_2 = torch.stack([edge_index_2[1], edge_index_2[0]], dim=0)
+        combined_edge_index2 = torch.cat([edge_index_2, trans_edge_index_2], dim=1)
         edge_attr_1 = data['edge_features_0'].squeeze()
+        combined_edge_attr1 = torch.cat([edge_attr_1, edge_attr_1], dim=0)
         edge_attr_2 = data['edge_features_1'].squeeze()
+        combined_edge_attr2 = torch.cat([edge_attr_2, edge_attr_2], dim=0)
         sampled_rules = data['rules'].squeeze(0)
         ori_lengths = data['ori_lengths']
 
-        t_start = time.time()
+        t1 = time.time()
         #graph vector process
-        features_1 = self.convolutional_pass(features_1, edge_index_1, edge_attr_1)
-        features_2 = self.convolutional_pass(features_2, edge_index_2, edge_attr_2)
+        features_1 = self.convolutional_pass(features_1, combined_edge_index1,combined_edge_attr1)
+        features_2 = self.convolutional_pass(features_2, combined_edge_index2,combined_edge_attr2)
         g1 = global_add_pool(features_1, torch.zeros(features_1.size(0), dtype=torch.long).to(features_1.device))
         g2 = global_add_pool(features_2, torch.zeros(features_2.size(0), dtype=torch.long).to(features_1.device))
         graph_vector, x1 = self.ntn(g1, g2)
+        t2 = time.time()
         #rule embedding process
         rules_embedding = self.rule_embeder(sampled_rules, ori_lengths)
         #vector combination process
         if rules_embedding.dim() < 2:
             rules_embedding = rules_embedding.unsqueeze(0)
 
-        t_end = time.time()
-        GR_time = t_end - t_start
-        
-        t_start = time.time()
+        t3 = time.time()
         if self.combine_type == 'fusion':
             if self.info_type == 'attention':
                 rules_fusion, attention_weight = self.rule_attention(rules_embedding, graph_vector)
@@ -210,6 +221,8 @@ class GraphNet(torch.nn.Module):
         x = self.fully_connected2(x)
         x = F.relu(x)
         x = self.fully_connected3(x)
-        t_end = time.time()
-        F_time = t_end - t_start
-        return torch.abs(x), attention_weight#, [GR_time, F_time]
+        t4 = time.time()
+        F_time = t4 - t3
+        G_time = t2 - t1
+        R_time = t3 - t2
+        return torch.abs(x), attention_weight, [G_time,R_time,F_time]
