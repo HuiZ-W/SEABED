@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 import logging
 from torch.utils.data import DataLoader
-from dataset.ged_dataset import NEWGEDDataSet
-from model.model import GraphNet
+from dataset.ged_dataset import MetisGEDDataSet
+from model.model import SubGraphNet
 import numpy as np
 from tqdm import tqdm
 import os
@@ -14,7 +14,7 @@ import random
 import json
 from test import cal_pk
 from scipy.stats import spearmanr, kendalltau
-
+import time
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -24,9 +24,9 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 def train(args):
-    score = False
+    score = True
     set_seed(args.seed)
-    model_dir = os.path.join(os.path.dirname(args.train_dir), "bi_RNN_Albation")
+    model_dir = os.path.join(os.path.dirname(args.train_dir), args.log_dir)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     device = torch.device(args.device)
@@ -38,32 +38,28 @@ def train(args):
     params = {
         'seed': args.seed,
         'dataset': args.dataset,
-        'combine_type': args.combine_type,
         'weight_decay': args.weight_decays,
         'lr': args.lr,
         'batch_size': args.batch_size,
         'avg_loss': args.avg_loss,
         'rule&graph_dim': args.rule_graph_dim,
-        'combine_type': args.combine_type,
-        'info_type': args.info_type,
-        'model_rule_nums': args.model_rule_nums,
-        'sample_rule_nums': args.sample_rule_nums,
-        'deduplicate': args.deduplicate,
-        'rule_length': args.rule_length,
-        "info": args.info
+        'n_patch': args.n_patch,
+        'use_patch': args.use_patch,
+        'use_local_count': args.use_local_count,
+        'use_extra_loss': args.use_extra_loss,
     }
     logging.info("Training parameters: %s", json.dumps(params, indent=4))
     # load data
-    train_dataset = NEWGEDDataSet(args.train_dir, args.train_pairs, PreLoad=args.preload, device=device, args=args)
+    train_dataset = MetisGEDDataSet(args.train_dir, args.train_pairs, PreLoad=args.preload, device=device, args=args)
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
     if args.val_dir != "none":
-        val_dataset = NEWGEDDataSet(args.val_dir, args.val_pairs, PreLoad=args.preload, device=device, args=args)
+        val_dataset = MetisGEDDataSet(args.val_dir, args.val_pairs, PreLoad=args.preload, device=device, args=args)
         val_loader = DataLoader(val_dataset, batch_size=1, shuffle=True)
     if args.test_dir != "none":
-        test_dataset = NEWGEDDataSet(args.test_dir, args.test_pairs, PreLoad=args.preload, device=device, args=args)
+        test_dataset = MetisGEDDataSet(args.test_dir, args.test_pairs, PreLoad=args.preload, device=device, args=args)
         test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
     # define model
-    model = GraphNet(args).to(device)
+    model = SubGraphNet(args).to(device)
     if args.model_path != "none":
         model.load_state_dict(torch.load(args.model_path))
     criterion = nn.MSELoss()
@@ -78,18 +74,35 @@ def train(args):
         optimizer.zero_grad()
         for i, data in enumerate(train_loader):
             gt_ged = data["gt_ged"]
-            output, attention_weight = model(data)
-            losses += criterion(output, gt_ged)
+            output, emb_loss = model(data)
+            losses = losses + criterion(output, gt_ged) + 0.01 * emb_loss
             if (i + 1) % args.batch_size == 0 or (i + 1) == len(train_loader):
                 total_loss += losses.item()
                 if args.avg_loss:
                     losses /= args.batch_size
+                print(losses)
                 losses.backward()
                 optimizer.step()
                 optimizer.zero_grad()
                 losses = 0
         total_loss /= len(train_loader)
         logging.info(f'Epoch {epoch}, Loss: {total_loss}')
+        # validate
+        if args.val_dir != "none":
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for data in val_loader:
+                    gt_ged = data["gt_ged"]
+                    output, emb_loss = model(data)
+                    loss = criterion(output, gt_ged) + 0.01 * emb_loss
+                    val_loss += loss.item()
+            val_loss /= len(val_loader)
+            logging.info(f'Epoch {epoch}, Validation Loss: {val_loss}')
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_val_epoch = epoch
+                torch.save(model.state_dict(), best_model_path)
         if score:
             nums = 0
             mse = []  # score mse
@@ -108,10 +121,11 @@ def train(args):
             result = {}
             gt = []
             pre = []
+            start_time = time.time()
             with torch.no_grad(): 
                 for data in tqdm(test_loader):
                     nums += 1
-                    output, attention_weight = model(data)
+                    output, emb_loss = model(data)
                     graph_id = data["graph1"][0]
                     gt_ged = data["gt_ged"]
                     real_ged = data["real_ged"]
@@ -131,6 +145,8 @@ def train(args):
                     result[graph_id]["pair_name"].append(data["graph1"][0])
                     result[graph_id]["gt"].append(real_ged.item())
                     result[graph_id]["pre"].append(pre_ged.item())
+            end_time = time.time()
+            run_time = end_time - start_time
             acc = num_acc/nums
             fea = num_fea/nums
             for key in result:
@@ -153,6 +169,7 @@ def train(args):
             tau = sum(tau)/len(tau)
             mse = sum(mse)/len(mse)
             mae = sum(mae)/len(mae)
+            run_time = run_time/nums
             result = {
                 'mse': mse,
                 'mae': mae,
@@ -165,85 +182,46 @@ def train(args):
                 'pk10': pk10,
                 'pk15': pk15,
                 'pk20': pk20,
+                'run_time': run_time
             }
             print(result)
             logging.info("result: %s", json.dumps(result, indent=4))
-        # validate
-        if args.val_dir != "none":
-            model.eval()
-            val_loss = 0
-            with torch.no_grad():
-                for data in val_loader:
-                    gt_ged = data["gt_ged"]
-                    output, attention_weight = model(data)
-                    loss = criterion(output, gt_ged)
-                    val_loss += loss.item()
-            val_loss /= len(val_loader)
-            logging.info(f'Epoch {epoch}, Validation Loss: {val_loss}')
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_val_epoch = epoch
-                torch.save(model.state_dict(), best_model_path)
+        
     logging.info(f'Best val epoch:{best_val_epoch}')
     logging.info(f'Best val loss:{best_val_loss}')
-    # test
-    '''
-    if args.test_dir != "none":
-        test_loss = 0
-        for data in test_loader:
-            gt_ged = data["gt_ged"]
-            output = model(data)
-            loss = criterion(output, gt_ged)
-            test_loss += loss.item()
-        test_loss /= len(test_loader)
-        logging.info(f'Test Loss: {test_loss}')
-        # save model
-        torch.save(model.state_dict(), last_model_path)
-        # test again
-        model1 = GraphNet(args, rule_nums=args.model_rule_num).to(device)
-        state_dict = torch.load(best_model_path)
-        model1.load_state_dict(state_dict)
-        model1.eval()
-        test_loss = 0
-        for data in test_loader:
-            gt_ged = data["gt_ged"]
-            output = model1(data)
-            loss = criterion(output, gt_ged)
-            test_loss += loss.item()
-        test_loss /= len(test_loader)
-        logging.info(f'Best Model Test Loss: {test_loss}')
-    else:
-        torch.save(model.state_dict(), last_model_path)
-    '''
     torch.save(model.state_dict(), last_model_path)
 
 if __name__ == "__main__":
-    dataset = 'lubm_unlabel'
+    dataset = 'wikidata_shuffle'
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default=dataset)
-    parser.add_argument('--train_dir', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/train')
-    parser.add_argument('--train_pairs', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/train_GEDINFO.json')
-    parser.add_argument('--val_dir', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/val')
-    parser.add_argument('--val_pairs', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/val_GEDINFO.json')
-    parser.add_argument('--test_dir', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test')
-    parser.add_argument('--test_pairs', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test_GEDINFO.json')
+    parser.add_argument('--train_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/train')
+    parser.add_argument('--train_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/train_GEDINFO.json')
+    parser.add_argument('--val_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/val')
+    parser.add_argument('--val_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/val_GEDINFO.json')
+    parser.add_argument('--test_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test')
+    parser.add_argument('--test_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test_GEDINFO.json')
     parser.add_argument('--model_path', type=str, default="none")
-    parser.add_argument('--preload', type=bool, default=True)
-    parser.add_argument('--device', type=str, default="cuda:1")
+    
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--avg_loss', type=bool, default=True)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--model_rule_nums', type=int, default=8)
-    parser.add_argument('--sample_rule_nums', type=int, default=16)
-    parser.add_argument('--rule_length', type=int, default=4)
     parser.add_argument('--rule_graph_dim', type=int, default=32)
-    parser.add_argument('--combine_type', type=str, default="fusion")
-    parser.add_argument('--deduplicate', type=bool, default=False)
-    parser.add_argument('--info_type', type=str, default='concat')
-    parser.add_argument('--info', type=str, default='=duplicate')
     parser.add_argument('--weight_decays', type=float, default=1e-4)
-    parser.add_argument('--epochs', type=int, default=10)
-    args = parser.parse_args()
+    parser.add_argument('--epochs', type=int, default=15)
+
+    parser.add_argument('--log_dir', type=str, default="NEWPATCH_Albation1_result")
+    parser.add_argument('--num_worker', type=int, default=1)
+    parser.add_argument('--preload', type=bool, default=True)
+    parser.add_argument('--device', type=str, default="cuda:1")
+    parser.add_argument('--n_patch', type=int, default=4)
+    parser.add_argument('--use_patch', type=bool, default=False)
+    parser.add_argument('--use_local_count', type=bool, default=True)
+    parser.add_argument('--use_extra_loss', type=bool, default=True)
+    args = parser.parse_args()                                                   
+
+
     train(args)
 
+    

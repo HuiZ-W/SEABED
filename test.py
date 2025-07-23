@@ -1,18 +1,20 @@
 import torch
-import torch.nn as nn 
-from tqdm import tqdm
-from torch.utils.data import DataLoader
-from dataset.ged_dataset import NEWGEDDataSet
-from model.model import GraphNet
+import torch.nn as nn
+import torch.optim as optim
 import logging
-import argparse
+from torch.utils.data import DataLoader
+from dataset.ged_dataset import MetisGEDDataSet
+from model.model import SubGraphNet
+import numpy as np
+from tqdm import tqdm
 import os
 import datetime
-import time
-import json
-from scipy.stats import spearmanr, kendalltau
+import argparse
 import random
-
+import json
+from test import cal_pk
+from scipy.stats import spearmanr, kendalltau
+import time
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -21,41 +23,41 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def test(args):
-
-    result_dir = os.path.join(os.path.dirname(args.test_dir), "result")
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    logger_path = os.path.join(result_dir, f"test_{current_time}.log")
-    logging.basicConfig(filename=logger_path, level=logging.INFO)
-    
+def train(args):
+    score = True
+    set_seed(args.seed)
+    model_dir = os.path.join(os.path.dirname(args.train_dir), args.log_dir)
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
     device = torch.device(args.device)
-
-    test_dataset = NEWGEDDataSet(args.test_dir, PreLoad=args.preload, device=device, args=args)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
-
-    model = GraphNet(args, rule_nums=args.model_rule_num).to(device)
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    best_model_path = os.path.join(model_dir, f"model_{current_time}_best.pth")
+    last_model_path = os.path.join(model_dir, f"model_{current_time}_last.pth")
+    logger_path = os.path.join(model_dir, f"log_{current_time}.log")
+    logging.basicConfig(filename=logger_path, level=logging.INFO)
+    params = {
+        'seed': args.seed,
+        'dataset': args.dataset,
+        'weight_decay': args.weight_decays,
+        'lr': args.lr,
+        'batch_size': args.batch_size,
+        'avg_loss': args.avg_loss,
+        'rule&graph_dim': args.rule_graph_dim,
+        'n_patch': args.n_patch,
+        'use_patch': args.use_patch,
+        'use_local_count': args.use_local_count,
+        'use_extra_loss': args.use_extra_loss,
+    }
+    logging.info("Training parameters: %s", json.dumps(params, indent=4))
+    # load data
+    test_dataset = MetisGEDDataSet(args.test_dir, args.test_pairs, PreLoad=args.preload, device=device, args=args)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+    # define model
+    model = SubGraphNet(args).to(device)
     model.load_state_dict(torch.load(args.model_path))
     model.eval()
     criterion = nn.MSELoss()
-    
-    total_loss = 0
-    start_time = time.time()
-    with torch.no_grad(): 
-        for data in tqdm(test_loader):
-            gt_ged = data["gt_ged"]
-            output = model(data)
-            loss = criterion(output, gt_ged)
-            total_loss += loss.item()
-    end_time = time.time()
-    total_loss /= len(test_loader)
-    logging.info(f'Test Loss: {total_loss}, Test_time: {(end_time - start_time)*100/len(test_loader)}')
-
-
-def score(args):
     nums = 0
-    time_usage = []
     mse = []  # score mse
     mae = []  # ged mae
     num_acc = 0  # the number of exact prediction (pre_ged == gt_ged)
@@ -67,29 +69,11 @@ def score(args):
     pk10 = []
     pk15 = []
     pk20 = []
-    ndcg_1 = []
-    ndcg_5 = []
-    ndcg_10 = []
-    ndcg_15 = []
-    ndcg_20 = []
-    time_percent={"fir_time":0,"snd_time":0,"trd_time":0}
-    result_dir = os.path.join(os.path.dirname(args.test_dir), "result")
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    logger_path = os.path.join(result_dir, f"test_{current_time}.log")
-    logging.basicConfig(filename=logger_path, level=logging.INFO)
-    
-    device = torch.device(args.device)
-
-    test_dataset = NEWGEDDataSet(args.test_dir, args.test_pairs, PreLoad=args.preload, device=device, args=args)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
-
-    model = GraphNet(args).to(device)
-    model.load_state_dict(torch.load(args.model_path))
+    global_times = []
+    local_times = []
+    Final_times = []
     model.eval()
     criterion = nn.MSELoss()
-    
     result = {}
     gt = []
     pre = []
@@ -97,12 +81,7 @@ def score(args):
     with torch.no_grad(): 
         for data in tqdm(test_loader):
             nums += 1
-            output, attention_weight, Time_Use = model(data)
-            '''
-            time_percent["fir_time"] += data['time_use'].item()
-            time_percent["snd_time"] += Time_Use[0]
-            time_percent["trd_time"] += Time_Use[1]
-            '''
+            output, emb_loss, t1, t2, t3 = model(data)
             graph_id = data["graph1"][0]
             gt_ged = data["gt_ged"]
             real_ged = data["real_ged"]
@@ -112,6 +91,9 @@ def score(args):
             mae.append(abs(pre_ged - real_ged).item())
             pre.append(pre_ged.item())
             gt.append(real_ged.item())
+            global_times.append(t1)
+            local_times.append(t2)
+            Final_times.append(t3)
             if round_pre_ged == real_ged:
                 num_acc += 1
                 num_fea += 1
@@ -123,7 +105,7 @@ def score(args):
             result[graph_id]["gt"].append(real_ged.item())
             result[graph_id]["pre"].append(pre_ged.item())
     end_time = time.time()
-    time_usage.append((end_time - start_time)*100/len(test_loader))
+    run_time = end_time - start_time
     acc = num_acc/nums
     fea = num_fea/nums
     for key in result:
@@ -135,11 +117,6 @@ def score(args):
         pk10.append(cal_pk(10, pre, gt))
         pk15.append(cal_pk(15, pre, gt))
         pk20.append(cal_pk(20, pre, gt))
-        ndcg_1.append(ndcg_k(1, pre, gt))
-        ndcg_5.append(ndcg_k(5, pre, gt))
-        ndcg_10.append(ndcg_k(10, pre, gt))
-        ndcg_15.append(ndcg_k(15, pre, gt))
-        ndcg_20.append(ndcg_k(20, pre, gt))
         rho.append(spearmanr(pre, gt)[0])
         tau.append(kendalltau(pre, gt)[0])
     pk1 = sum(pk1)/len(pk1)
@@ -147,18 +124,15 @@ def score(args):
     pk10 = sum(pk10)/len(pk10)
     pk15 = sum(pk15)/len(pk15)
     pk20 = sum(pk20)/len(pk20)
-    ndcg_1 = sum(ndcg_1)/len(ndcg_1)
-    ndcg_5 = sum(ndcg_5)/len(ndcg_5)
-    ndcg_10 = sum(ndcg_10)/len(ndcg_10)
-    ndcg_15 = sum(ndcg_15)/len(ndcg_15)
-    ndcg_20 = sum(ndcg_20)/len(ndcg_20)
     rho = sum(rho)/len(rho)
     tau = sum(tau)/len(tau)
     mse = sum(mse)/len(mse)
     mae = sum(mae)/len(mae)
-    time_percent["fir_time"] = time_percent["fir_time"]/len(test_loader)
-    time_percent["snd_time"] = time_percent["snd_time"]/len(test_loader)
-    time_percent["trd_time"] = time_percent["trd_time"]/len(test_loader)
+    global_time = sum(global_times)/len(global_times)
+    local_time = sum(local_times)/len(local_times)
+    Final_time = sum(Final_times)/len(Final_times)
+    print(f"Global time: {global_time:.4f}s, Local time: {local_time:.4f}s, Final time: {Final_time:.4f}s")
+    run_time = run_time/nums
     result = {
         'mse': mse,
         'mae': mae,
@@ -171,72 +145,43 @@ def score(args):
         'pk10': pk10,
         'pk15': pk15,
         'pk20': pk20,
-        'ndcg_1': ndcg_1,
-        'ndcg_5': ndcg_5,
-        'ndcg_10': ndcg_10,
-        'ndcg_15': ndcg_15,
-        'ndcg_20': ndcg_20,
-        'time': time_usage,
-        'time_percent': time_percent
+        'run_time': run_time,
+        'global_time': global_time,
+        'local_time': local_time,
+        'Final_time': Final_time,
     }
     print(result)
     logging.info("result: %s", json.dumps(result, indent=4))
 
-def cal_pk(num, pre, gt):
-    tmp = list(zip(gt, pre))
-    tmp.sort(key=lambda x: x[0])
-    beta = []
-    for i, p in enumerate(tmp):
-        beta.append((p[1], p[0], i))
-    beta.sort()
-    ans = 0
-    for i in range(num):
-        if beta[i][2] < num:
-            ans += 1
-    return ans/num
-import numpy as np
-
-
-def ndcg_k(k, pre, gt):
-    tmp = list(zip(gt, pre))
-    tmp.sort(key=lambda x: x[0])
-    beta = []
-    for i, p in enumerate(tmp):
-        beta.append((p[1], p[0], i))
-    beta.sort()
-    revlevance_scores = []
-    best_scores = []
-    for i in range(len(beta)):
-        if beta[i][2] == i:
-            revlevance_scores.append(1)
-        else:
-            revlevance_scores.append(0)
-        best_scores.append(1)
-    revlevance_scores = np.asfarray(revlevance_scores)[:k]
-    best_scores = np.asfarray(best_scores)[:k]
-    dcg = np.sum((2**revlevance_scores - 1) / np.log2(np.arange(2, revlevance_scores.size + 2)))
-    idcg = np.sum((2**best_scores - 1) / np.log2(np.arange(2, best_scores.size + 2)))
-    if idcg == 0:
-        return 0
-    return dcg/idcg
-
 if __name__ == "__main__":
-    set_seed(42)
-    dataset = "swdf_unlabel"
+    dataset = 'wikidata_shuffle'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--test_dir', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test')
-    parser.add_argument('--test_pairs', type=str, default=f'/home/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test_GEDINFO.json')
-    parser.add_argument('--model_path', type=str, default='/home/GED_Process/NeuralGED/data/newdata/swdf_unlabel/processed_data/tree_mlp_all_rules/model_2024-09-11_20-39-08_best.pth')
-    parser.add_argument('--device', type=str, default="cuda:0")
-    parser.add_argument('--preload', type=bool, default=False)
+    parser.add_argument('--dataset', type=str, default=dataset)
+    parser.add_argument('--train_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/train')
+    parser.add_argument('--train_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/train_GEDINFO.json')
+    parser.add_argument('--val_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/val')
+    parser.add_argument('--val_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/val_GEDINFO.json')
+    parser.add_argument('--test_dir', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test')
+    parser.add_argument('--test_pairs', type=str, default=f'/home/huizhong/GED_Process/NeuralGED/data/newdata/{dataset}/processed_data/test_GEDINFO.json')
+    parser.add_argument('--model_path', type=str, default="/home/huizhong/GED_Process/NeuralGED/data/newdata/wikidata_shuffle/processed_data/NEWPATCH_Albation0_result/model_2025-03-01_13-57-11_best.pth")
+    
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--model_rule_nums', type=int, default=8)
-    parser.add_argument('--sample_rule_nums', type=int, default=16)
+    parser.add_argument('--avg_loss', type=bool, default=True)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--rule_graph_dim', type=int, default=32)
-    parser.add_argument('--rule_length', type=int, default=4)
-    parser.add_argument('--deduplicate', type=bool, default=False)
-    parser.add_argument('--combine_type', type=str, default="fusion")
-    parser.add_argument('--info_type', type=str, default='attention')
-    args = parser.parse_args()
-    #test(args)
-    score(args)
+    parser.add_argument('--weight_decays', type=float, default=1e-4)
+    parser.add_argument('--epochs', type=int, default=15)
+
+    parser.add_argument('--log_dir', type=str, default="NEWPATCH_Albation_test_result")
+    parser.add_argument('--num_worker', type=int, default=4)
+    parser.add_argument('--preload', type=bool, default=True)
+    parser.add_argument('--device', type=str, default="cuda:1")
+    parser.add_argument('--n_patch', type=int, default=4)
+    parser.add_argument('--use_patch', type=bool, default=True)
+    parser.add_argument('--use_local_count', type=bool, default=True)
+    parser.add_argument('--use_extra_loss', type=bool, default=True)
+    args = parser.parse_args()                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+    train(args)
+
+    
