@@ -1,6 +1,6 @@
-# GENIE
+# SEABED
 
-This repository contains the implementation of GENIE, a method for predicting knowledge graph edit distance through embedding and graph neural networks. The method is developed using PyTorch.
+This repository contains the implementation of SEABED, a method for predicting knowledge graph edit distance through embedding and graph neural networks. The method is developed using PyTorch.
 
 ---
 
@@ -19,7 +19,7 @@ pip install -r requirements.txt
 ```
 ## Usage
 ### Data
-The used datasets, graph pairs can be found under the following link:[GENIE_Data](https://cuhko365-my.sharepoint.com/:f:/g/personal/224045005_link_cuhk_edu_cn/Eq1RC0HTdnhHka5r6Bd2LpMB9PSlJx2XEEc3TvtSRfGFCQ?e=24EaDJ)
+The used datasets, graph pairs can be found under the following link:[SEABED_Data](https://cuhko365-my.sharepoint.com/:f:/g/personal/224045005_link_cuhk_edu_cn/Eq1RC0HTdnhHka5r6Bd2LpMB9PSlJx2XEEc3TvtSRfGFCQ?e=24EaDJ)
 
 We expect you to have a directory containing the data you want to predict in the following format:
 ```
